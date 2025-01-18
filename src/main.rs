@@ -9,8 +9,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // run client
-    client::run_client().await;
-    client::run_client().await;
+    client::run_client("www.google.com").await;
+    client::run_client("www.youtube.com").await;
 
     Ok(())
 }
