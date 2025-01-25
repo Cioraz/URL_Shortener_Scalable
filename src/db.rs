@@ -1,9 +1,9 @@
+use crate::handlers::generate_short_url;
 use chrono::prelude::*;
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 use redis::{Commands, RedisResult};
 use serde::{Deserialize, Serialize};
-use crate::handlers::generate_short_url;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 pub type Database = Arc<Mutex<redis::Client>>;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -13,7 +13,6 @@ pub struct Data {
     pub long_url: String,
     pub ttl: u32,
 }
-
 
 /// Create a new Redis database connection
 pub fn init_db() -> Arc<Mutex<redis::Connection>> {
@@ -34,14 +33,18 @@ pub fn store_data(database: Database, key: String, data: Data) -> RedisResult<()
     let client = database.lock().unwrap();
     let mut conn = client.get_connection()?; // Get the Redis connection
 
-    let serialized_data = serde_json::to_string(&data)
-        .map_err(|e| redis::RedisError::from((redis::ErrorKind::TypeError, "Serialization error", e.to_string())))?;
+    let serialized_data = serde_json::to_string(&data).map_err(|e| {
+        redis::RedisError::from((
+            redis::ErrorKind::TypeError,
+            "Serialization error",
+            e.to_string(),
+        ))
+    })?;
 
     // Store the serialized data with a TTL in Redis
     conn.set_ex::<_, _, ()>(key, serialized_data, data.ttl.into())?;
     Ok(())
 }
-
 
 /// Retrieve data from Redis
 pub fn retrieve_data(database: Database, key: &str) -> Option<Data> {
@@ -61,7 +64,7 @@ pub fn delete_data(database: Database, key: &str) -> RedisResult<()> {
     Ok(())
 }
 
-/// Example usage of the database in your `handle_generate_url` function
+// Example usage of the database in your `handle_generate_url` function
 // pub async fn handle_generate_url(
 //     key: String,
 //     body: serde_json::Value,
@@ -121,7 +124,7 @@ pub fn delete_data(database: Database, key: &str) -> RedisResult<()> {
 //     Ok(warp::reply::with_status(response, warp::http::StatusCode::OK))
 // }
 
-/// Example usage of the database in your `handle_redirect_url` function
+// Example usage of the database in your `handle_redirect_url` function
 // pub async fn handle_redirect_url(
 //     params: HashMap<String, String>,
 //     database: Database,
