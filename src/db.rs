@@ -1,38 +1,30 @@
-use crate::handlers::generate_short_url;
-use chrono::prelude::*;
-use redis::{Commands, RedisResult};
+use redis::{AsyncCommands, RedisResult};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-pub type Database = Arc<Mutex<redis::Client>>;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+
+pub type Database = Arc<Mutex<redis::aio::MultiplexedConnection>>;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Data {
-    pub creation_data: String, // Store as a formatted string for Redis
+    pub creation_data: String,
     pub shortened_url: String,
     pub long_url: String,
     pub ttl: u32,
 }
 
 /// Create a new Redis database connection
-pub fn init_db() -> Arc<Mutex<redis::Connection>> {
-    // Create a Redis client and establish a connection
+pub async fn init_db() -> Database {
     let client = redis::Client::open("redis://127.0.0.1/").expect("Failed to create Redis client");
-    let connection = client.get_connection().expect("Failed to connect to Redis");
+    let connection = client
+        .get_multiplexed_async_connection()
+        .await
+        .expect("Failed to connect to Redis");
     Arc::new(Mutex::new(connection))
 }
 
-pub async fn get_redis_connection(database: &Database) -> redis::Connection {
-    let client = database.lock().unwrap();
-    client.get_connection().expect("Failed to connect to Redis")
-}
-
-/// Store data in Redis
-pub fn store_data(database: Database, key: String, data: Data) -> RedisResult<()> {
-    // Lock the database to ensure thread safety
-    let client = database.lock().unwrap();
-    let mut conn = client.get_connection()?; // Get the Redis connection
-
+/// Store data in Redis asynchronously
+pub async fn store_data(database: Database, key: String, data: Data) -> RedisResult<()> {
     let serialized_data = serde_json::to_string(&data).map_err(|e| {
         redis::RedisError::from((
             redis::ErrorKind::TypeError,
@@ -41,26 +33,22 @@ pub fn store_data(database: Database, key: String, data: Data) -> RedisResult<()
         ))
     })?;
 
-    // Store the serialized data with a TTL in Redis
-    conn.set_ex::<_, _, ()>(key, serialized_data, data.ttl.into())?;
+    let mut conn = database.lock().await;
+    let _: () = conn.set_ex(&key, serialized_data, data.ttl.into()).await?;
     Ok(())
 }
 
-/// Retrieve data from Redis
-pub fn retrieve_data(database: Database, key: &str) -> Option<Data> {
-    let client = database.lock().unwrap();
-    let mut conn = client.get_connection().ok()?;
-
-    let serialized_data: String = conn.get(key).ok()?;
+/// Retrieve data from Redis asynchronously
+pub async fn retrieve_data(database: Database, key: &str) -> Option<Data> {
+    let mut conn = database.lock().await;
+    let serialized_data: String = conn.get(key).await.ok()?;
     serde_json::from_str(&serialized_data).ok()
 }
 
-/// Delete expired or invalid data (optional utility)
-pub fn delete_data(database: Database, key: &str) -> RedisResult<()> {
-    let client = database.lock().unwrap();
-    let mut conn = client.get_connection()?;
-
-    let _: () = conn.del(key)?;
+/// Delete expired or invalid data
+pub async fn delete_data(database: Database, key: &str) -> RedisResult<()> {
+    let mut conn = database.lock().await;
+    conn.del(key).await?;
     Ok(())
 }
 

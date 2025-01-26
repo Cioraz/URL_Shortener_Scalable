@@ -1,23 +1,23 @@
-use chrono::prelude::*;
-use http::Uri;
+use crate::db::{retrieve_data, store_data, Data, Database};
 use rand::seq::IteratorRandom;
 use ring::digest::{Context, SHA256};
-use redis::{Commands, Connection};
 use std::collections::HashMap;
-use warp::{http::StatusCode, reply::Reply, Filter};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use warp::{http::StatusCode, Filter};
 
 /// Extract Redis connection from the Arc<Mutex> and pass it into the handler functions.
 pub fn with_db(
-    redis_connection: Arc<Mutex<redis::Connection>>,
-) -> impl warp::Filter<Extract = (Arc<Mutex<redis::Connection>>,), Error = std::convert::Infallible> + Clone {
-    warp::any().map(move || redis_connection.clone())
+    db: Database,
+) -> impl Filter<Extract = (Database,), Error = std::convert::Infallible> + Clone {
+    warp::any().map(move || db.clone())
 }
+
 /// Handle the generation of short URLs, storing the information in Redis.
 pub async fn handle_generate_url(
     key: String,
     body: serde_json::Value,
-    redis_connection: Arc<Mutex<redis::Connection>>,
+    redis_connection: Arc<Mutex<redis::aio::MultiplexedConnection>>,
     api_key: String,
 ) -> Result<impl warp::Reply, warp::Rejection> {
     // Verify API key authorization
@@ -41,19 +41,21 @@ pub async fn handle_generate_url(
     let short_url = generate_short_url(long_url);
 
     // Store metadata in Redis (with expiration TTL of 30 seconds)
-    let data = serde_json::json!({
-        "creation_date": chrono::Local::now().to_rfc3339(),
-        "long_url": long_url,
-        "ttl": 30
-    });
+    let data = Data {
+        creation_data: chrono::Local::now().to_rfc3339(),
+        shortened_url: format!("http://localhost/{}", &short_url),
+        long_url: long_url.to_string(),
+        ttl: 30,
+    };
 
-    let mut conn = redis_connection.lock().unwrap();
-    let _: () = conn
-        .set_ex(&short_url, data.to_string(), 30)  // Set with expiration time (TTL)
-        .map_err(|e| eprintln!("Redis error: {}", e))
-        .unwrap_or_default();
+    if let Err(e) = store_data(redis_connection, short_url.clone(), data).await {
+        eprintln!("Database error: {}", e);
+        return Ok(warp::reply::with_status(
+            warp::reply::json(&serde_json::json!({ "error": "DATABASE_ERROR" })),
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ));
+    }
 
-    // Respond with the generated short URL
     let response_body = serde_json::json!({
         "status": "success",
         "short_url": short_url
@@ -83,46 +85,43 @@ pub fn generate_short_url(long_url: &str) -> String {
 }
 
 /// Handle the redirection based on the short URL, validating its expiration time in Redis.
+
 pub async fn handle_redirect_url(
     params: HashMap<String, String>,
-    redis_connection: Arc<Mutex<redis::Connection>>,
+    redis_connection: Arc<Mutex<redis::aio::MultiplexedConnection>>,
 ) -> Result<impl warp::Reply, warp::Rejection> {
     // Retrieve the short URL from request parameters
     let short_url = params.get("short_url").cloned().unwrap_or_default();
 
-    // Lock the Redis connection to fetch the short URL data
-    let mut conn = redis_connection.lock().unwrap();
-    let result: Option<String> = conn.get(&short_url).ok();
+    if let Some(data) = retrieve_data(redis_connection, &short_url).await {
+        let now = chrono::Local::now();
+        let expiration_time = chrono::DateTime::parse_from_rfc3339(&data.creation_data).unwrap()
+            + chrono::Duration::seconds(data.ttl.into());
 
-    if let Some(data) = result {
-        // Deserialize the stored data
-        let data: serde_json::Value = serde_json::from_str(&data).unwrap_or_default();
-        let creation_date = chrono::DateTime::parse_from_rfc3339(data["creation_date"].as_str().unwrap_or("")).unwrap();
-        let ttl = data["ttl"].as_i64().unwrap_or(0);
-
-        // Check if the short URL has expired
-        if chrono::Local::now() > creation_date + chrono::Duration::seconds(ttl) {
-            return Ok(warp::reply::json(&serde_json::json!({
-                "status": "error",
-                "message": "Short URL has expired!"
-            }))
-            .into_response());
+        if now > expiration_time {
+            return Ok(warp::reply::with_status(
+                warp::reply::json(&serde_json::json!({
+                    "status": "error",
+                    "message": "Short URL has expired!"
+                })),
+                StatusCode::NOT_FOUND,
+            ));
         }
 
-        // If valid, redirect to the long URL
-        let long_url = data["long_url"].as_str().unwrap_or_default();
-        return Ok(warp::reply::json(&serde_json::json!({
-            "status": "success",
-            "redirect_to": long_url
-        }))
-        .into_response());
+        return Ok(warp::reply::with_status(
+            warp::reply::json(&serde_json::json!({
+                "status": "success",
+                "redirect_to": data.long_url
+            })),
+            StatusCode::OK,
+        ));
     }
 
-    // If the short URL doesn't exist in Redis, return an error
-    Ok(warp::reply::json(&serde_json::json!({
-        "status": "error",
-        "message": "Short URL not found"
-    }))
-    .into_response())
+    Ok(warp::reply::with_status(
+        warp::reply::json(&serde_json::json!({
+            "status": "error",
+            "message": "Short URL not found"
+        })),
+        StatusCode::NOT_FOUND,
+    ))
 }
-
