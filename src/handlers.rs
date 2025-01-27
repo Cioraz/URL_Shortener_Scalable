@@ -38,17 +38,17 @@ pub async fn handle_generate_url(
     }
 
     // Generate the short URL
-    let short_url = generate_short_url(long_url);
+    let short_url_id = generate_short_url_id(long_url);
 
     // Store metadata in Redis (with expiration TTL of 30 seconds)
     let data = Data {
         creation_data: chrono::Local::now().to_rfc3339(),
-        shortened_url: format!("http://localhost/{}", &short_url),
+        shortened_url: format!("http://localhost/{}", &short_url_id),
         long_url: long_url.to_string(),
         ttl: 30,
     };
 
-    if let Err(e) = store_data(redis_connection, short_url.clone(), data).await {
+    if let Err(e) = store_data(redis_connection, short_url_id.clone(), data).await {
         eprintln!("Database error: {}", e);
         return Ok(warp::reply::with_status(
             warp::reply::json(&serde_json::json!({ "error": "DATABASE_ERROR" })),
@@ -58,7 +58,7 @@ pub async fn handle_generate_url(
 
     let response_body = serde_json::json!({
         "status": "success",
-        "short_url": short_url
+        "short_url": short_url_id
     });
 
     Ok(warp::reply::with_status(
@@ -68,7 +68,7 @@ pub async fn handle_generate_url(
 }
 
 /// Generate a unique short URL from the long URL.
-pub fn generate_short_url(long_url: &str) -> String {
+pub fn generate_short_url_id(long_url: &str) -> String {
     let mut context = Context::new(&SHA256);
     context.update(long_url.as_bytes());
     let hash = context.finish();
