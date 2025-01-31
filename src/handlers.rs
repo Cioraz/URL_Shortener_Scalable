@@ -1,10 +1,20 @@
 use crate::db::{retrieve_data, store_data, Data, Database};
 use rand::seq::IteratorRandom;
-use ring::digest::{Context, SHA256};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use warp::{http::StatusCode, Filter};
+use std::sync::atomic::{AtomicI64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
+use base62;
+use once_cell::sync::Lazy;
+
+const EPOCH: i64 = 1609459200000; // Custom epoch (e.g., 2021-01-01)
+const NODE_ID_BITS: i64 = 10;
+const SEQUENCE_BITS: i64 = 12;
+
+const MAX_NODE_ID: i64 = (1 << NODE_ID_BITS) - 1;
+const MAX_SEQUENCE: i64 = (1 << SEQUENCE_BITS) - 1;
 
 /// Extract Redis connection from the Arc<Mutex> and pass it into the handler functions.
 pub fn with_db(
@@ -68,20 +78,63 @@ pub async fn handle_generate_url(
 }
 
 /// Generate a unique short URL from the long URL.
-pub fn generate_short_url_id(long_url: &str) -> String {
-    let mut context = Context::new(&SHA256);
-    context.update(long_url.as_bytes());
-    let hash = context.finish();
-    let truncated_hash = u128::from_le_bytes(hash.as_ref()[0..16].try_into().unwrap());
-    let base62_encoded = base62::encode(truncated_hash);
+pub struct SnowflakeGenerator {
+    node_id: i64,
+    last_timestamp: AtomicI64,
+    sequence: AtomicI64,
+}
 
-    let mut rng = rand::thread_rng();
-    let short_url_id: String = base62_encoded
-        .chars()
-        .choose_multiple(&mut rng, 7)
-        .into_iter()
-        .collect();
-    short_url_id
+impl SnowflakeGenerator {
+    pub fn new(node_id: i64) -> Self {
+        assert!(node_id >= 0 && node_id <= MAX_NODE_ID, "Node ID must be between 0 and {}", MAX_NODE_ID);
+        SnowflakeGenerator {
+            node_id,
+            last_timestamp: AtomicI64::new(0),
+            sequence: AtomicI64::new(0),
+        }
+    }
+
+    fn timestamp() -> i64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("Clock moved backwards")
+            .as_millis() as i64
+            - EPOCH
+    }
+
+    pub fn generate(&self) -> i64 {
+        let mut timestamp = Self::timestamp();
+        let last = self.last_timestamp.load(Ordering::Acquire);
+
+        if timestamp < last {
+            panic!("Clock moved backwards");
+        }
+
+        if timestamp == last {
+            let seq = self.sequence.fetch_add(1, Ordering::SeqCst) & MAX_SEQUENCE;
+            if seq == 0 {
+                while timestamp <= last {
+                    timestamp = Self::timestamp();
+                }
+            }
+        } else {
+            self.sequence.store(0, Ordering::Relaxed);
+        }
+
+        self.last_timestamp.store(timestamp, Ordering::Release);
+
+        (timestamp << (NODE_ID_BITS + SEQUENCE_BITS))
+            | (self.node_id << SEQUENCE_BITS)
+            | self.sequence.load(Ordering::Relaxed)
+    }
+}
+
+pub fn generate_short_url_id(_long_url: &str) -> String {
+    static GENERATOR: once_cell::sync::Lazy<SnowflakeGenerator> = 
+        once_cell::sync::Lazy::new(|| SnowflakeGenerator::new(1));
+    
+    let snowflake_id = GENERATOR.generate();
+    base62::encode(snowflake_id as u64)[0..7].to_string()
 }
 
 /// Handle the redirection based on the short URL, validating its expiration time in Redis.
