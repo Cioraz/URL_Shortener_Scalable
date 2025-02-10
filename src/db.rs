@@ -18,7 +18,7 @@ pub async fn init_db() -> Pool {
         .expect("Failed to create Redis connection manager");
 
     bb8::Pool::builder()
-        .max_size(10000) // Set the maximum number of connections in the pool
+        .max_size(100) // Set the maximum number of connections in the pool
         .build(manager)
         .await
         .expect("Failed to create Redis connection pool")
