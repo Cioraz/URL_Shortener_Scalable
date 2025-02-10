@@ -1,9 +1,8 @@
-use redis::{AsyncCommands, RedisResult};
+use bb8_redis::{bb8, redis::cmd, RedisConnectionManager};
+use redis::{RedisError, RedisResult};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use tokio::sync::Mutex;
 
-pub type Database = Arc<Mutex<redis::aio::MultiplexedConnection>>;
+pub type Pool = bb8::Pool<RedisConnectionManager>;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Data {
@@ -13,18 +12,20 @@ pub struct Data {
     pub ttl: u32,
 }
 
-/// Create a new Redis database connection
-pub async fn init_db() -> Database {
-    let client = redis::Client::open("redis://127.0.0.1/").expect("Failed to create Redis client");
-    let connection = client
-        .get_multiplexed_async_connection()
+/// Create a new Redis connection pool
+pub async fn init_db() -> Pool {
+    let manager = RedisConnectionManager::new("redis://127.0.0.1")
+        .expect("Failed to create Redis connection manager");
+
+    bb8::Pool::builder()
+        .max_size(10000) // Set the maximum number of connections in the pool
+        .build(manager)
         .await
-        .expect("Failed to connect to Redis");
-    Arc::new(Mutex::new(connection))
+        .expect("Failed to create Redis connection pool")
 }
 
 /// Store data in Redis asynchronously
-pub async fn store_data(database: Database, short_url_id: String, data: Data) -> RedisResult<()> {
+pub async fn store_data(pool: &Pool, short_url_id: String, data: Data) -> RedisResult<()> {
     let serialized_data = serde_json::to_string(&data).map_err(|e| {
         redis::RedisError::from((
             redis::ErrorKind::TypeError,
@@ -33,115 +34,69 @@ pub async fn store_data(database: Database, short_url_id: String, data: Data) ->
         ))
     })?;
 
-    let mut conn = database.lock().await;
-    let _: () = conn
-        .set_ex(&short_url_id, serialized_data, data.ttl.into())
-        .await?;
+    let mut conn = pool.get().await.map_err(|e| {
+        redis::RedisError::from((
+            redis::ErrorKind::IoError,
+            "Failed to get connection from pool",
+            e.to_string(),
+        ))
+    })?;
+
+    // Use `cmd` API to execute the SETEX command
+    cmd("SETEX")
+        .arg(&short_url_id)
+        .arg(data.ttl)
+        .arg(serialized_data)
+        .query_async(&mut *conn)
+        .await
+        .map_err(|e| {
+            // Convert the error from cmd into a RedisError
+            RedisError::from((
+                redis::ErrorKind::IoError,
+                "Failed to execute SETEX command",
+                e.to_string(),
+            ))
+        })?;
     Ok(())
 }
 
 /// Retrieve data from Redis asynchronously
-pub async fn retrieve_data(database: Database, short_url_id: &str) -> Option<Data> {
-    let mut conn = database.lock().await;
-    let serialized_data: String = conn.get(short_url_id).await.ok()?;
+pub async fn retrieve_data(pool: &Pool, short_url_id: &str) -> Option<Data> {
+    let mut conn = pool.get().await.ok()?;
+
+    // Use `cmd` API to execute the GET command
+    let serialized_data: String = cmd("GET")
+        .arg(short_url_id)
+        .query_async(&mut *conn)
+        .await
+        .ok()?;
+
     serde_json::from_str(&serialized_data).ok()
 }
 
 /// Delete expired or invalid data
-pub async fn delete_data(database: Database, short_url_id: &str) -> RedisResult<()> {
-    let mut conn = database.lock().await;
-    conn.del(short_url_id).await?;
+pub async fn delete_data(pool: &Pool, short_url_id: &str) -> RedisResult<()> {
+    let mut conn = pool.get().await.map_err(|e| {
+        // Convert bb8's pool error into a RedisError
+        RedisError::from((
+            redis::ErrorKind::IoError,
+            "Failed to get connection from pool",
+            e.to_string(),
+        ))
+    })?;
+
+    // Use `cmd` API to execute the DEL command and handle errors explicitly
+    cmd("DEL")
+        .arg(short_url_id)
+        .query_async(&mut *conn)
+        .await
+        .map_err(|e| {
+            // Convert the error from cmd into a RedisError
+            RedisError::from((
+                redis::ErrorKind::IoError,
+                "Failed to execute DEL command",
+                e.to_string(),
+            ))
+        })?;
     Ok(())
 }
-
-// Example usage of the database in your `handle_generate_url` function
-// pub async fn handle_generate_url(
-//     key: String,
-//     body: serde_json::Value,
-//     database: Database,
-//     api_key: String,
-// ) -> Result<impl warp::Reply, warp::Rejection> {
-//     if key != api_key {
-//         return Ok(warp::reply::with_status(
-//             warp::reply::json(&serde_json::json!({
-//                 "error": "UNAUTHORIZED"
-//             })),
-//             warp::http::StatusCode::UNAUTHORIZED,
-//         ));
-//     }
-
-//     let long_url = body["long_url"].as_str().unwrap_or("");
-//     if long_url.is_empty() {
-//         return Ok(warp::reply::with_status(
-//             warp::reply::json(&serde_json::json!({
-//                 "error": "INVALID URL"
-//             })),
-//             warp::http::StatusCode::BAD_REQUEST,
-//         ));
-//     }
-
-//     let short_url = generate_short_url(long_url);
-//     println!("Short URL: {}, Long URL: {}", &short_url, long_url);
-
-//     let data = Data {
-//         creation_data: chrono::Local::now().to_rfc3339(),
-//         shortened_url: format!("{}/{}", "localhost", &short_url),
-//         long_url: long_url.to_string(),
-//         ttl: 30,
-//     };
-
-//     // Store the data in Redis
-//     if let Err(err) = store_data(database.clone(), short_url.clone(), data) {
-//         eprintln!("Error storing data in Redis: {}", err);
-//         return Ok(warp::reply::with_status(
-//             warp::reply::json(&serde_json::json!({
-//                 "error": "INTERNAL SERVER ERROR"
-//             })),
-//             warp::http::StatusCode::INTERNAL_SERVER_ERROR,
-//         ));
-//     }
-
-//     let response_body = serde_json::json!({
-//         "status": "success",
-//         "short_url": short_url
-//     });
-
-//     if let Ok(response_string) = serde_json::to_string(&response_body) {
-//         println!("Generated response: {}", response_string);
-//     }
-
-//     let response = warp::reply::json(&response_body);
-//     Ok(warp::reply::with_status(response, warp::http::StatusCode::OK))
-// }
-
-// Example usage of the database in your `handle_redirect_url` function
-// pub async fn handle_redirect_url(
-//     params: HashMap<String, String>,
-//     database: Database,
-// ) -> Result<impl warp::Reply, warp::Rejection> {
-//     let short_url = params.get("short_url").cloned().unwrap_or_default();
-
-//     if let Some(data) = retrieve_data(database.clone(), &short_url) {
-//         let now = chrono::Local::now();
-//         let expiration_time = chrono::DateTime::parse_from_rfc3339(&data.creation_data)
-//             .unwrap()
-//             + chrono::Duration::seconds(data.ttl.into());
-
-//         if now > expiration_time {
-//             return Ok(warp::reply::json(&serde_json::json!({
-//                 "status": "error",
-//                 "message": "Short URL has expired!"
-//             })));
-//         }
-
-//         return Ok(warp::reply::json(&serde_json::json!({
-//             "status": "success",
-//             "redirect_to": data.long_url
-//         })));
-//     }
-
-//     Ok(warp::reply::json(&serde_json::json!({
-//         "status": "error",
-//         "message": "Short URL not found"
-//     })))
-// }

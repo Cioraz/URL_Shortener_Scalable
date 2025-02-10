@@ -1,17 +1,10 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use rand::Rng;
-use std::sync::Arc;
-use tokio::sync::Mutex;
 use tokio::task;
-use url_shortener::db::{self, Data};
+use url_shortener::db::{self, Data, Pool};
 
-async fn init_test_db() -> db::Database {
-    let client = redis::Client::open("redis://127.0.0.1/").expect("Failed to create Redis client");
-    let connection = client
-        .get_multiplexed_async_connection()
-        .await
-        .expect("Failed to connect to Redis");
-    Arc::new(Mutex::new(connection))
+async fn init_test_db() -> Pool {
+    db::init_db().await
 }
 
 async fn generate_random_string() -> String {
@@ -20,12 +13,12 @@ async fn generate_random_string() -> String {
     chars.into_iter().collect()
 }
 
-async fn benchmark_store_and_retrieve(db: db::Database) {
+async fn benchmark_store_and_retrieve(pool: Pool) {
     let mut handles = vec![];
-    let collisions = Arc::new(Mutex::new(0));
+    let collisions = std::sync::Arc::new(tokio::sync::Mutex::new(0));
 
-    for _ in 0..1000 {
-        let db_clone = db.clone();
+    for _ in 0..10_000 {
+        let pool_clone = pool.clone();
         let collisions = collisions.clone();
         let short_url_id = generate_random_string().await;
         let long_url = format!("http://example.com/{}", generate_random_string().await);
@@ -40,11 +33,11 @@ async fn benchmark_store_and_retrieve(db: db::Database) {
 
             // Store data in Redis
             let store_result =
-                db::store_data(db_clone.clone(), short_url_id.clone(), data.clone()).await;
+                db::store_data(&pool_clone, short_url_id.clone(), data.clone()).await;
             assert!(store_result.is_ok());
 
             // Retrieve the stored data
-            let retrieved_data = db::retrieve_data(db_clone.clone(), &short_url_id).await;
+            let retrieved_data = db::retrieve_data(&pool_clone, &short_url_id).await;
             assert!(retrieved_data.is_some());
 
             // Check for collisions
@@ -75,11 +68,11 @@ async fn benchmark_store_and_retrieve(db: db::Database) {
 fn criterion_benchmark(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().unwrap();
 
-    c.bench_function("store_and_retrieve_1000_clients", |b| {
+    c.bench_function("store_and_retrieve_10000_clients", |b| {
         b.iter(|| {
             rt.block_on(async {
-                let db = init_test_db().await;
-                benchmark_store_and_retrieve(db).await
+                let pool = init_test_db().await;
+                benchmark_store_and_retrieve(pool).await
             })
         })
     });

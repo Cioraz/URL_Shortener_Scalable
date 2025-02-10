@@ -1,15 +1,13 @@
-use crate::db::{retrieve_data, store_data, Data, Database};
+use crate::db::{retrieve_data, store_data, Data, Pool};
 use rand::seq::IteratorRandom;
 use ring::digest::{Context, SHA256};
 use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::Mutex;
 use warp::{http::StatusCode, Filter};
 
-/// Extract Redis connection from the Arc<Mutex> and pass it into the handler functions.
+/// Extract Redis connection pool and pass it into the handler functions.
 pub fn with_db(
-    db: Database,
-) -> impl Filter<Extract = (Database,), Error = std::convert::Infallible> + Clone {
+    db: Pool,
+) -> impl Filter<Extract = (Pool,), Error = std::convert::Infallible> + Clone {
     warp::any().map(move || db.clone())
 }
 
@@ -17,7 +15,7 @@ pub fn with_db(
 pub async fn handle_generate_url(
     key: String,
     body: serde_json::Value,
-    redis_connection: Arc<Mutex<redis::aio::MultiplexedConnection>>,
+    redis_pool: Pool,
     api_key: String,
 ) -> Result<impl warp::Reply, warp::Rejection> {
     // Verify API key authorization
@@ -48,7 +46,7 @@ pub async fn handle_generate_url(
         ttl: 30,
     };
 
-    if let Err(e) = store_data(redis_connection, short_url_id.clone(), data).await {
+    if let Err(e) = store_data(&redis_pool, short_url_id.clone(), data).await {
         eprintln!("Database error: {}", e);
         return Ok(warp::reply::with_status(
             warp::reply::json(&serde_json::json!({ "error": "DATABASE_ERROR" })),
@@ -85,15 +83,14 @@ pub fn generate_short_url_id(long_url: &str) -> String {
 }
 
 /// Handle the redirection based on the short URL, validating its expiration time in Redis.
-
 pub async fn handle_redirect_url(
     params: HashMap<String, String>,
-    redis_connection: Arc<Mutex<redis::aio::MultiplexedConnection>>,
+    redis_pool: Pool,
 ) -> Result<impl warp::Reply, warp::Rejection> {
     // Retrieve the short URL from request parameters
     let short_url = params.get("short_url").cloned().unwrap_or_default();
 
-    if let Some(data) = retrieve_data(redis_connection, &short_url).await {
+    if let Some(data) = retrieve_data(&redis_pool, &short_url).await {
         let now = chrono::Local::now();
         let expiration_time = chrono::DateTime::parse_from_rfc3339(&data.creation_data).unwrap()
             + chrono::Duration::seconds(data.ttl.into());
