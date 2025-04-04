@@ -129,41 +129,41 @@ impl SnowflakeGenerator {
             | seq
     }
 
-    pub fn generate_batch(&self, batch_size: usize) -> Vec<i64> {
-        let mut ids = Vec::with_capacity(batch_size);
-        let mut timestamp = Self::timestamp();
-        let last = self.last_timestamp.load(Ordering::Acquire);
+    // pub fn generate_batch(&self, batch_size: usize) -> Vec<i64> {
+    //     let mut ids = Vec::with_capacity(batch_size);
+    //     let mut timestamp = Self::timestamp();
+    //     let last = self.last_timestamp.load(Ordering::Acquire);
 
-        if timestamp < last {
-            timestamp = last;
-        }
+    //     if timestamp < last {
+    //         timestamp = last;
+    //     }
 
-        for _ in 0..batch_size {
-            let seq = if timestamp == last {
-                let seq = self.sequence.fetch_add(1, Ordering::Relaxed) & MAX_SEQUENCE;
-                if seq == 0 {
-                    while timestamp <= last {
-                        std::thread::sleep(std::time::Duration::from_micros(10));
-                        timestamp = Self::timestamp();
-                    }
-                }
-                seq
-            } else {
-                self.sequence.store(0, Ordering::Relaxed);
-                0
-            };
+    //     for _ in 0..batch_size {
+    //         let seq = if timestamp == last {
+    //             let seq = self.sequence.fetch_add(1, Ordering::Relaxed) & MAX_SEQUENCE;
+    //             if seq == 0 {
+    //                 while timestamp <= last {
+    //                     std::thread::sleep(std::time::Duration::from_micros(10));
+    //                     timestamp = Self::timestamp();
+    //                 }
+    //             }
+    //             seq
+    //         } else {
+    //             self.sequence.store(0, Ordering::Relaxed);
+    //             0
+    //         };
 
-            self.last_timestamp.store(timestamp, Ordering::Release);
+    //         self.last_timestamp.store(timestamp, Ordering::Release);
 
-            ids.push(
-                (timestamp << (NODE_ID_BITS + SEQUENCE_BITS))
-                    | (self.node_id << SEQUENCE_BITS)
-                    | seq,
-            );
-        }
+    //         ids.push(
+    //             (timestamp << (NODE_ID_BITS + SEQUENCE_BITS))
+    //                 | (self.node_id << SEQUENCE_BITS)
+    //                 | seq,
+    //         );
+    //     }
 
-        ids
-    }
+    //     ids
+    // }
 }
 
 pub fn generate_short_url_id(_long_url: &str) -> String {

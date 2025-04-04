@@ -52,10 +52,10 @@ pub async fn retrieve_data(database: Database, short_url_id: &str) -> Option<Dat
     serde_json::from_str(&serialized_data).ok()
 }
 
-/// Delete expired or invalid data
+// Delete expired or invalid data
 pub async fn delete_data(database: Database, short_url_id: &str) -> RedisResult<()> {
     let mut conn = database.lock().await;
-    conn.del(short_url_id).await?;
+    let _:() = conn.del(short_url_id).await?;
     Ok(())
 }
 
