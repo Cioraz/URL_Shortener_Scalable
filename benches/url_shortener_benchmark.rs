@@ -24,7 +24,7 @@ async fn benchmark_store_and_retrieve(db: db::Database) {
     let mut handles = vec![];
     let collisions = Arc::new(Mutex::new(0));
 
-    for _ in 0..1000 {
+    for _ in 0..10_000 {
         let db_clone = db.clone();
         let collisions = collisions.clone();
         let short_url_id = generate_random_string().await;
@@ -75,7 +75,7 @@ async fn benchmark_store_and_retrieve(db: db::Database) {
 fn criterion_benchmark(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().unwrap();
 
-    c.bench_function("store_and_retrieve_1000_clients", |b| {
+    c.bench_function("store_and_retrieve_100000_clients", |b| {
         b.iter(|| {
             rt.block_on(async {
                 let db = init_test_db().await;
