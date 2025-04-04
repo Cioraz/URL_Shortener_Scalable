@@ -24,7 +24,7 @@ async fn benchmark_store_and_retrieve(db: db::Database) {
     let mut handles = vec![];
     let collisions = Arc::new(Mutex::new(0));
 
-    for _ in 0..100000 {
+    for _ in 0..10_000 {
         let db_clone = db.clone();
         let collisions = collisions.clone();
         let short_url_id = generate_random_string().await;

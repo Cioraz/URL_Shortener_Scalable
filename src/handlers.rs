@@ -1,5 +1,4 @@
 use crate::db::{retrieve_data, store_data, Data, Database};
-use rand::seq::IteratorRandom;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -7,7 +6,6 @@ use warp::{http::StatusCode, Filter};
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use base62;
-use once_cell::sync::Lazy;
 
 const EPOCH: i64 = 1609459200000; // Custom epoch (e.g., 2021-01-01)
 const NODE_ID_BITS: i64 = 10;
@@ -107,25 +105,64 @@ impl SnowflakeGenerator {
         let last = self.last_timestamp.load(Ordering::Acquire);
 
         if timestamp < last {
-            panic!("Clock moved backwards");
+            timestamp = last; // Handle clock moving backwards gracefully
         }
 
-        if timestamp == last {
-            let seq = self.sequence.fetch_add(1, Ordering::SeqCst) & MAX_SEQUENCE;
+        let seq = if timestamp == last {
+            let seq = self.sequence.fetch_add(1, Ordering::Relaxed) & MAX_SEQUENCE;
             if seq == 0 {
                 while timestamp <= last {
+                    std::thread::sleep(std::time::Duration::from_micros(10)); // Avoid busy-wait
                     timestamp = Self::timestamp();
                 }
             }
+            seq
         } else {
-            self.sequence.store(0, Ordering::Relaxed);
-        }
+            self.sequence.store(0, Ordering::Relaxed); // Reset sequence for new timestamp
+            0
+        };
 
         self.last_timestamp.store(timestamp, Ordering::Release);
 
         (timestamp << (NODE_ID_BITS + SEQUENCE_BITS))
             | (self.node_id << SEQUENCE_BITS)
-            | self.sequence.load(Ordering::Relaxed)
+            | seq
+    }
+
+    pub fn generate_batch(&self, batch_size: usize) -> Vec<i64> {
+        let mut ids = Vec::with_capacity(batch_size);
+        let mut timestamp = Self::timestamp();
+        let last = self.last_timestamp.load(Ordering::Acquire);
+
+        if timestamp < last {
+            timestamp = last;
+        }
+
+        for _ in 0..batch_size {
+            let seq = if timestamp == last {
+                let seq = self.sequence.fetch_add(1, Ordering::Relaxed) & MAX_SEQUENCE;
+                if seq == 0 {
+                    while timestamp <= last {
+                        std::thread::sleep(std::time::Duration::from_micros(10));
+                        timestamp = Self::timestamp();
+                    }
+                }
+                seq
+            } else {
+                self.sequence.store(0, Ordering::Relaxed);
+                0
+            };
+
+            self.last_timestamp.store(timestamp, Ordering::Release);
+
+            ids.push(
+                (timestamp << (NODE_ID_BITS + SEQUENCE_BITS))
+                    | (self.node_id << SEQUENCE_BITS)
+                    | seq,
+            );
+        }
+
+        ids
     }
 }
 
