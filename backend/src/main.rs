@@ -33,8 +33,17 @@ async fn main() {
         .and_then(handlers::handle_redirect_url);
 
     let ping = warp::path("ping").map(|| warp::reply::json(&"pong"));
+
+    let cors = warp::cors()
+        // Allow all origins for development; adjust this for production
+        .allow_any_origin()
+        // Allow headers required by your frontend
+        .allow_header("Content-Type")
+        .allow_header("API-Key")
+        // Allow the methods you need
+        .allow_methods(vec!["GET", "POST"]);
     
-    let routes = generate_url.or(redirect_url).or(ping);
+    let routes = generate_url.or(redirect_url).or(ping).with(cors);
 
 
     // Explicitly bind to all interfaces on port 8000 to match Docker's internal port mapping

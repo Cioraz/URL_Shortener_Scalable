@@ -14,7 +14,7 @@ export default function GeneratePage() {
     setShortUrl("");
 
     try {
-      const response = await fetch("/api/generate_url", {
+      const response = await fetch("http://localhost:15555/generate_url", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
