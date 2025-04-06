@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use warp::Filter;
 mod db;
 mod handlers;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 #[tokio::main]
@@ -32,19 +32,15 @@ async fn main() {
         .and(with_db(db2))
         .and_then(handlers::handle_redirect_url);
 
-    let routes = generate_url.or(redirect_url);
+    let ping = warp::path("ping").map(|| warp::reply::json(&"pong"));
+    
+    let routes = generate_url.or(redirect_url).or(ping);
 
-    // Rest of the code remains the same
-    let host = std::env::var("HOST_ADDR_1").unwrap_or_else(|_| "127.0.0.1".to_string());
-    let host_port = std::env::var("HOST_PORT_1")
-        .unwrap_or_else(|_| "15555".to_string())
-        .parse::<u16>()
-        .expect("PORT must be a number!");
-    let host_parts: Vec<u8> = host
-        .split('.')
-        .map(|x| x.parse::<u8>().expect("Host Part Must be a number!"))
-        .collect();
-    let host_address = Ipv4Addr::new(host_parts[0], host_parts[1], host_parts[2], host_parts[3]);
-    let socket_addr = SocketAddr::new(IpAddr::V4(host_address), host_port);
+
+    // Explicitly bind to all interfaces on port 8000 to match Docker's internal port mapping
+    let socket_addr: SocketAddr = "0.0.0.0:8000".parse().expect("Failed to parse socket address");
+    
+    println!("Server starting, listening on {}", socket_addr);
+    
     warp::serve(routes).run(socket_addr).await;
 }

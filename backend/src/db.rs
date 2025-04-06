@@ -20,12 +20,29 @@ pub struct Data {
 
 /// Create a new Redis database connection
 pub async fn init_db() -> Database {
-    let client = redis::Client::open("redis://127.0.0.1/").expect("Failed to create Redis client");
-    let connection = client
-        .get_multiplexed_async_connection()
-        .await
-        .expect("Failed to connect to Redis");
-    Arc::new(Mutex::new(connection))
+    let try_urls = vec![
+        "redis://redis:6379/",     // Docker Compose service name
+        "redis://127.0.0.1:6379/", // Local fallback
+    ];
+
+    for url in try_urls {
+        match redis::Client::open(url) {
+            Ok(client) => match client.get_multiplexed_async_connection().await {
+                Ok(conn) => {
+                    println!("✅ Connected to Redis at: {}", url);
+                    return Arc::new(Mutex::new(conn));
+                }
+                Err(e) => {
+                    eprintln!("❌ Failed to connect using {}: {}", url, e);
+                }
+            },
+            Err(e) => {
+                eprintln!("❌ Failed to create client using {}: {}", url, e);
+            }
+        }
+    }
+
+    panic!("🚨 Could not connect to Redis on any known address");
 }
 
 /// Store data in Redis asynchronously

@@ -31,3 +31,4 @@ rand = "0.8"
 [[bench]]
 name = "url_shortener_benchmark"
 harness = false
+path = "benches/url_shortener_benchmark.rs"

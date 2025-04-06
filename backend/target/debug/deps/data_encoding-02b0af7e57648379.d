@@ -1,0 +1,7 @@
+/home/sunil/URL_Shortener_Scalable/backend/target/debug/deps/libdata_encoding-02b0af7e57648379.rmeta: /home/sunil/.cargo/registry/src/index.crates.io-6f17d22bba15001f/data-encoding-2.8.0/src/lib.rs
+
+/home/sunil/URL_Shortener_Scalable/backend/target/debug/deps/libdata_encoding-02b0af7e57648379.rlib: /home/sunil/.cargo/registry/src/index.crates.io-6f17d22bba15001f/data-encoding-2.8.0/src/lib.rs
+
+/home/sunil/URL_Shortener_Scalable/backend/target/debug/deps/data_encoding-02b0af7e57648379.d: /home/sunil/.cargo/registry/src/index.crates.io-6f17d22bba15001f/data-encoding-2.8.0/src/lib.rs
+
+/home/sunil/.cargo/registry/src/index.crates.io-6f17d22bba15001f/data-encoding-2.8.0/src/lib.rs:

@@ -1,0 +1,1 @@
+cargo:rustc-env=MIME_TYPES_GENERATED_PATH=/home/sunil/URL_Shortener_Scalable/backend/target/debug/build/mime_guess-662d3e3f476dfdc2/out/mime_types_generated.rs

@@ -1,0 +1,31 @@
+services:
+  redis:
+    image: "redis:latest"
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile 
+    ports:
+      - "${HOST_PORT_1}:8000"
+    environment:
+      - API_KEY=${API_KEY}
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - redis
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    depends_on:
+        - backend
+
+volumes:
+  redis_data:
