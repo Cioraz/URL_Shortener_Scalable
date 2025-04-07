@@ -2,6 +2,8 @@
 import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+const GENERATE_ROUTE = process.env.NEXT_PUBLIC_GENERATE_ROUTE;
+const API_KEY = process.env.NEXT_PUBLIC_API_KEY;
 
 export default function GeneratePage() {
   const [longUrl, setLongUrl] = useState("");
@@ -14,11 +16,11 @@ export default function GeneratePage() {
     setShortUrl("");
 
     try {
-      const response = await fetch("http://localhost:15555/generate_url", {
+      const response = await fetch(GENERATE_ROUTE, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "API-Key": "123456789", // Make sure this matches your API_KEY in .env
+          "API-Key": API_KEY, 
         },
         body: JSON.stringify({ long_url: longUrl }),
       });
@@ -30,8 +32,10 @@ export default function GeneratePage() {
       const data = await response.json();
       console.log(data);
       if (data.short_url) {
-        setShortUrl(`${data.short_url}`);
-      } else {
+        const slug = data.short_url.split("/").pop();
+        setShortUrl(`/dns_resolver/${slug}`);
+      }
+       else {
         setError("Failed to generate short URL");
       }
     } catch (error) {

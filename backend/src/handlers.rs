@@ -51,7 +51,7 @@ pub async fn handle_generate_url(
     // Store metadata in Redis (with expiration TTL of 30 seconds)
     let data = Data {
         creation_data: chrono::Local::now().to_rfc3339(),
-        shortened_url: format!("http://localhost/{}", &short_url_id),
+        shortened_url: format!("http://localhost/dns_resolver{}", &short_url_id),
         long_url: long_url.to_string(),
         ttl: 30,
     };

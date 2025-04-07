@@ -10,6 +10,8 @@ COPY Cargo.toml Cargo.lock ./
 # Copy the full source code
 COPY src ./src
 
+COPY .env .env
+
 # Optionally expose the port your app listens on
 EXPOSE 8000
 

@@ -12,8 +12,11 @@ RUN npm install
 # Copy the rest of the application code
 COPY . .
 
+# ✅ Copy .env file into the Docker image
+COPY .env .env
+
 # Expose the port the app runs on
 EXPOSE 3000
 
 # Start the application
-CMD ["npm","run","dev"]
+CMD ["npm", "run", "dev"]
