@@ -1,19 +1,24 @@
 "use client";
-import { useState } from "react";
+import { useState, FormEvent } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-const GENERATE_ROUTE = process.env.NEXT_PUBLIC_GENERATE_ROUTE;
-const API_KEY = process.env.NEXT_PUBLIC_API_KEY;
+const GENERATE_ROUTE = process.env.NEXT_PUBLIC_GENERATE_ROUTE || '/api/generate';
+const API_KEY = process.env.NEXT_PUBLIC_API_KEY || '';
 
 export default function GeneratePage() {
   const [longUrl, setLongUrl] = useState("");
   const [shortUrl, setShortUrl] = useState("");
   const [error, setError] = useState("");
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError("");
     setShortUrl("");
+
+    if (!GENERATE_ROUTE) {
+      setError("API endpoint not configured");
+      return;
+    }
 
     try {
       const response = await fetch(GENERATE_ROUTE, {

@@ -19,7 +19,7 @@ export function ModeToggle() {
   return (
     <div className="flex items-center">
       <Button
-        variant="none"
+        variant="ghost"
         size="icon"
         onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
       >

@@ -1,19 +1,44 @@
-# Use the Rust base image
-FROM rust:latest
+# ---- Builder Stage ----
+FROM rust:1.83-alpine AS builder
 
-# Set the working directory inside the container
+# Install build dependencies
+RUN apk add --no-cache musl-dev build-base
+
+# Set working directory
 WORKDIR /app
 
-# Copy the manifest and lock file first for caching dependencies
+# Add Cargo manifest first to cache dependencies
 COPY Cargo.toml Cargo.lock ./
+RUN cargo fetch
 
-# Copy the full source code
+# Copy source and env
 COPY src ./src
-
 COPY .env .env
 
-# Optionally expose the port your app listens on
+# Add musl target and build statically
+RUN rustup target add x86_64-unknown-linux-musl
+RUN cargo build --release --target x86_64-unknown-linux-musl
+
+# ---- Runtime Stage ----
+FROM alpine:latest
+
+# Install minimal runtime dependencies (CA certs for HTTPS)
+RUN apk add --no-cache ca-certificates
+
+# Create non-root user
+RUN adduser -D appuser
+
+WORKDIR /app
+
+# Copy statically linked binary and env file
+COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/url_shortener .
+COPY --from=builder /app/.env .env
+
+# Use non-root user
+USER appuser
+
+# Expose the app port
 EXPOSE 8000
 
-# Run the application using cargo
-CMD ["cargo", "run", "--release"]
+# Run the binary
+CMD ["./url_shortener"]
