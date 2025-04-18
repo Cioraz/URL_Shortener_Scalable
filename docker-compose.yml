@@ -36,6 +36,7 @@ services:
       - "80:80"
     depends_on:
       - backend
+      - frontend
 
   # prometheus:
   #   image: "prom/prometheus:latest"
