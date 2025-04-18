@@ -27,6 +27,16 @@ services:
     depends_on:
         - backend
 
+  nginx:
+    image: nginx:latest
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
   # prometheus:
   #   image: "prom/prometheus:latest"
   #   container_name: prometheus

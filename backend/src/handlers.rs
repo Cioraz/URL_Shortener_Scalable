@@ -1,11 +1,16 @@
 use crate::db::{retrieve_data, store_data, Data, Database};
-use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::Mutex;
-use warp::{http::StatusCode, Filter};
-use std::sync::atomic::{AtomicI64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
 use base62;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
+use tokio::sync::Mutex;
+use warp::{http::StatusCode, reject, Filter, Rejection};
+
+// Define a custom error that implements warp::reject::Reject
+#[derive(Debug)]
+pub struct RedisError(pub String);
+impl reject::Reject for RedisError {}
 
 const EPOCH: i64 = 1609459200000; // Custom epoch (e.g., 2021-01-01)
 const NODE_ID_BITS: i64 = 10;
@@ -21,6 +26,7 @@ pub fn with_db(
     warp::any().map(move || db.clone())
 }
 
+const BASE_URL: &str = "http://rustyshortener";
 /// Handle the generation of short URLs, storing the information in Redis.
 pub async fn handle_generate_url(
     key: String,
@@ -46,31 +52,26 @@ pub async fn handle_generate_url(
     }
 
     // Generate the short URL
-    let short_url_id = generate_short_url_id(long_url);
+    let id = generate_short_url_id(long_url);
+    let full = format!("{}/dns_resolver/{}", BASE_URL, id);
 
-    // Store metadata in Redis (with expiration TTL of 30 seconds)
     let data = Data {
         creation_data: chrono::Local::now().to_rfc3339(),
-        shortened_url: format!("http://localhost/dns_resolver{}", &short_url_id),
+        shortened_url: full.clone(),
         long_url: long_url.to_string(),
         ttl: 30,
     };
 
-    if let Err(e) = store_data(redis_connection, short_url_id.clone(), data).await {
-        eprintln!("Database error: {}", e);
-        return Ok(warp::reply::with_status(
-            warp::reply::json(&serde_json::json!({ "error": "DATABASE_ERROR" })),
-            StatusCode::INTERNAL_SERVER_ERROR,
-        ));
-    }
+    store_data(redis_connection, id.clone(), data)
+        .await
+        .map_err(|e| reject::custom(RedisError(format!("Redis storage error: {}", e))))?;
 
-    let response_body = serde_json::json!({
-        "status": "success",
-        "short_url": short_url_id
+    let body = serde_json::json!({
+      "status": "success",
+      "short_url": full
     });
-
     Ok(warp::reply::with_status(
-        warp::reply::json(&response_body),
+        warp::reply::json(&body),
         StatusCode::OK,
     ))
 }
@@ -84,7 +85,11 @@ pub struct SnowflakeGenerator {
 
 impl SnowflakeGenerator {
     pub fn new(node_id: i64) -> Self {
-        assert!(node_id >= 0 && node_id <= MAX_NODE_ID, "Node ID must be between 0 and {}", MAX_NODE_ID);
+        assert!(
+            node_id >= 0 && node_id <= MAX_NODE_ID,
+            "Node ID must be between 0 and {}",
+            MAX_NODE_ID
+        );
         SnowflakeGenerator {
             node_id,
             last_timestamp: AtomicI64::new(0),
@@ -124,9 +129,7 @@ impl SnowflakeGenerator {
 
         self.last_timestamp.store(timestamp, Ordering::Release);
 
-        (timestamp << (NODE_ID_BITS + SEQUENCE_BITS))
-            | (self.node_id << SEQUENCE_BITS)
-            | seq
+        (timestamp << (NODE_ID_BITS + SEQUENCE_BITS)) | (self.node_id << SEQUENCE_BITS) | seq
     }
 
     // pub fn generate_batch(&self, batch_size: usize) -> Vec<i64> {
@@ -167,20 +170,17 @@ impl SnowflakeGenerator {
 }
 
 pub fn generate_short_url_id(_long_url: &str) -> String {
-    static GENERATOR: once_cell::sync::Lazy<SnowflakeGenerator> = 
+    static GENERATOR: once_cell::sync::Lazy<SnowflakeGenerator> =
         once_cell::sync::Lazy::new(|| SnowflakeGenerator::new(1));
-    
+
     let snowflake_id = GENERATOR.generate();
     base62::encode(snowflake_id as u64)[0..7].to_string()
 }
 
-/// Handle the redirection based on the short URL, validating its expiration time in Redis.
-
 pub async fn handle_redirect_url(
     params: HashMap<String, String>,
     redis_connection: Arc<Mutex<redis::aio::MultiplexedConnection>>,
-) -> Result<impl warp::Reply, warp::Rejection> {
-    // Retrieve the short URL from request parameters
+) -> Result<Box<dyn warp::Reply>, warp::Rejection> {
     let short_url = params.get("short_url").cloned().unwrap_or_default();
 
     if let Some(data) = retrieve_data(redis_connection, &short_url).await {
@@ -189,29 +189,35 @@ pub async fn handle_redirect_url(
             + chrono::Duration::seconds(data.ttl.into());
 
         if now > expiration_time {
-            return Ok(warp::reply::with_status(
+            return Ok(Box::new(warp::reply::with_status(
                 warp::reply::json(&serde_json::json!({
                     "status": "error",
                     "message": "Short URL has expired!"
                 })),
                 StatusCode::NOT_FOUND,
-            ));
+            )));
         }
 
-        return Ok(warp::reply::with_status(
-            warp::reply::json(&serde_json::json!({
-                "status": "success",
-                "redirect_to": data.long_url
-            })),
-            StatusCode::OK,
-        ));
+        // Perform HTTP redirect to the long URL
+        if let Ok(uri) = data.long_url.parse::<warp::http::Uri>() {
+            return Ok(Box::new(warp::redirect::temporary(uri)));
+        } else {
+            return Ok(Box::new(warp::reply::with_status(
+                warp::reply::json(&serde_json::json!({
+                    "status": "error",
+                    "message": "Invalid long URL format"
+                })),
+                StatusCode::BAD_REQUEST,
+            )));
+        }
     }
 
-    Ok(warp::reply::with_status(
+    // This is the "URL not found" case
+    Ok(Box::new(warp::reply::with_status(
         warp::reply::json(&serde_json::json!({
             "status": "error",
             "message": "Short URL not found"
         })),
         StatusCode::NOT_FOUND,
-    ))
+    )))
 }

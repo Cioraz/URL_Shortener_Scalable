@@ -1,43 +1,37 @@
-# Build stage
-FROM node:18 AS build
+# ─── Stage 1: Build the Next.js app ──────────────────────────────────────────
+FROM node:18-alpine AS builder
 
-# Set the working directory
+# Create app directory
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
+# Install all deps (prod + dev) for build
+COPY package.json package-lock.json ./
+RUN npm ci
 
-# Install dependencies
-RUN npm install
-
-# Copy the rest of the application code
+# Copy source & build
 COPY . .
-
-# Build the application
 RUN npm run build
 
-# Production stage
-FROM node:18-slim
 
-# Set the working directory
+# ─── Stage 2: Runtime image ─────────────────────────────────────────────────
+FROM node:18-alpine AS production
+
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
+# Install only production deps
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
 
-# Install only production dependencies
-RUN npm install --only=production
+# Copy build artifacts
+COPY --from=builder /app/.next .next
+COPY --from=builder /app/public public
 
-# Copy built application from build stage
-COPY --from=build /app/.next ./.next
-COPY --from=build /app/public ./public
-# Add any other necessary files for your Next.js app
+# If you have a next.config.js, uncomment the line below:
+# COPY --from=builder /app/next.config.js ./
 
-# Copy .env file
+# Copy env (optional—consider injecting at runtime instead)
 COPY .env .env
 
-# Expose the port
+# Expose & run
 EXPOSE 3000
-
-# Start the application
 CMD ["npm", "start"]

@@ -1,13 +1,13 @@
 use dotenv::dotenv;
 use handlers::with_db;
 use std::collections::HashMap;
-use warp::Filter;
+use warp::cors;
+use warp::Filter; // Add this import for CORS
 mod db;
 mod handlers;
+use prometheus::{register_counter, register_histogram_vec, Encoder, TextEncoder};
 use std::net::SocketAddr;
 use std::sync::Arc;
-
-use prometheus::{Encoder, TextEncoder, register_counter, Counter, HistogramVec, register_histogram_vec};
 #[derive(Debug)]
 struct PrometheusErrorWrapper(prometheus::Error);
 impl warp::reject::Reject for PrometheusErrorWrapper {}
@@ -22,7 +22,8 @@ async fn main() {
     let generate_url_counter = register_counter!(
         "generate_url_requests_total",
         "Total number of generate_url requests"
-    ).unwrap();
+    )
+    .unwrap();
 
     let buckets = prometheus::linear_buckets(0.01, 0.05, 20).unwrap();
     let generate_url_duration = register_histogram_vec!(
@@ -30,7 +31,15 @@ async fn main() {
         "Request duration for generate_url",
         &["endpoint"],
         buckets
-        ).unwrap();
+    )
+    .unwrap();
+
+    // Define the CORS configuration
+    let cors = cors()
+        .allow_any_origin()
+        .allow_methods(vec!["GET", "POST", "PUT", "DELETE", "OPTIONS"])
+        .allow_headers(vec!["Content-Type", "API-Key", "Authorization"])
+        .build();
 
     let generate_url = warp::path("generate_url")
         .and(warp::post())
@@ -42,10 +51,8 @@ async fn main() {
             generate_url_counter.inc();
             let histogram = generate_url_duration.with_label_values(&["generate_url"]);
             let timer = histogram.start_timer(); // start the timer
-
             let api_key = api_key.to_string();
             let fut = handlers::handle_generate_url(key, body, db, api_key);
-
             async move {
                 let result = fut.await;
                 timer.observe_duration(); // stop + record the time
@@ -53,12 +60,15 @@ async fn main() {
             }
         });
 
-    let db2 = Arc::clone(&database);
-    let redirect_url = warp::path("redirect_url")
-        .and(warp::get())
-        .and(warp::query::<HashMap<String, String>>())
-        .and(with_db(db2))
-        .and_then(handlers::handle_redirect_url);
+    let db3 = Arc::clone(&database);
+    let redirect_route = warp::path!("dns_resolver" / String)
+        .and(with_db(db3))
+        .and_then(|short_url: String, db| {
+            let mut map = HashMap::new();
+            map.insert("short_url".to_string(), short_url);
+            handlers::handle_redirect_url(map, db)
+        })
+        .with(cors.clone()); // Use clone() to reuse the cors configuration
 
     // For health check
     let ping = warp::path("ping").map(|| warp::reply::json(&"pong"));
@@ -75,29 +85,21 @@ async fn main() {
                 Ok::<_, warp::Rejection>(warp::reply::with_header(
                     output,
                     "Content-Type",
-                    encoder.format_type()
+                    encoder.format_type(),
                 ))
-            },
+            }
             Err(e) => Err(warp::reject::custom(PrometheusErrorWrapper(e))),
         }
     });
 
-    let cors = warp::cors()
-        // Allow all origins for development; adjust this for production
-        .allow_any_origin()
-        // Allow headers required by your frontend
-        .allow_header("Content-Type")
-        .allow_header("API-Key")
-        // Allow the methods you need
-        .allow_methods(vec!["GET", "POST"]);
-    
-    let routes = generate_url.or(redirect_url).or(ping).or(metrics).with(cors);
-
+    let api_routes = generate_url.or(ping).or(metrics).with(cors.clone());
+    let routes = api_routes.or(redirect_route);
 
     // Explicitly bind to all interfaces on port 8000 to match Docker's internal port mapping
-    let socket_addr: SocketAddr = "0.0.0.0:8000".parse().expect("Failed to parse socket address");
-    
+    let socket_addr: SocketAddr = "0.0.0.0:8000"
+        .parse()
+        .expect("Failed to parse socket address");
+
     println!("Server starting, listening on {}", socket_addr);
-    
     warp::serve(routes).run(socket_addr).await;
 }

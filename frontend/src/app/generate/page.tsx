@@ -2,8 +2,9 @@
 import { useState, FormEvent } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-const GENERATE_ROUTE = process.env.NEXT_PUBLIC_GENERATE_ROUTE || '/api/generate';
-const API_KEY = process.env.NEXT_PUBLIC_API_KEY || '';
+const GENERATE_ROUTE =
+  process.env.NEXT_PUBLIC_GENERATE_ROUTE || "/api/generate";
+const API_KEY = process.env.NEXT_PUBLIC_API_KEY || "";
 
 export default function GeneratePage() {
   const [longUrl, setLongUrl] = useState("");
@@ -25,7 +26,7 @@ export default function GeneratePage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "API-Key": API_KEY, 
+          "API-Key": API_KEY,
         },
         body: JSON.stringify({ long_url: longUrl }),
       });
@@ -36,11 +37,10 @@ export default function GeneratePage() {
 
       const data = await response.json();
       console.log(data);
+
       if (data.short_url) {
-        const slug = data.short_url.split("/").pop();
-        setShortUrl(`/dns_resolver/${slug}`);
-      }
-       else {
+        setShortUrl(data.short_url); // 👈 Use full URL as returned
+      } else {
         setError("Failed to generate short URL");
       }
     } catch (error) {
