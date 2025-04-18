@@ -1,37 +1,53 @@
-# ─── Stage 1: Build the Next.js app ──────────────────────────────────────────
-FROM node:18-alpine AS builder
-
-# Create app directory
+# ─── Stage 1: Dependencies ──────────────────────────────────────────────────
+FROM node:18-alpine AS deps
 WORKDIR /app
 
-# Install all deps (prod + dev) for build
+# Copy package files
 COPY package.json package-lock.json ./
+
+# Install dependencies with cache optimization
 RUN npm ci
 
-# Copy source & build
-COPY . .
-RUN npm run build
-
-
-# ─── Stage 2: Runtime image ─────────────────────────────────────────────────
-FROM node:18-alpine AS production
-
+# ─── Stage 2: Builder ────────────────────────────────────────────────────────
+FROM node:18-alpine AS builder
 WORKDIR /app
 
-# Install only production deps
-COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
+# Set to production for optimized build
+ENV NODE_ENV=production
 
-# Copy build artifacts
-COPY --from=builder /app/.next .next
-COPY --from=builder /app/public public
+# Copy dependencies from deps stage
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
 
-# If you have a next.config.js, uncomment the line below:
+# Build the app
+RUN npm run build
+
+# ─── Stage 3: Runner ─────────────────────────────────────────────────────────
+FROM node:18-alpine AS runner
+WORKDIR /app
+
+# Set to production for runtime
+ENV NODE_ENV=production
+
+# Create a non-root user for security
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 nextjs
+
+# Copy only necessary files from builder
 # COPY --from=builder /app/next.config.js ./
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/.next ./.next
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./package.json
 
-# Copy env (optional—consider injecting at runtime instead)
-COPY .env .env
+# Set proper ownership
+RUN chown -R nextjs:nodejs /app
 
-# Expose & run
+# Switch to non-root user
+USER nextjs
+
+# Expose the port Next.js runs on
 EXPOSE 3000
+
+# Start the app - environment variables will be provided by docker-compose
 CMD ["npm", "start"]

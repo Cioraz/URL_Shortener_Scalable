@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
-use warp::{http::StatusCode, reject, Filter, Rejection};
+use warp::{http::StatusCode, reject, Filter};
 
 // Define a custom error that implements warp::reject::Reject
 #[derive(Debug)]
@@ -27,6 +27,7 @@ pub fn with_db(
 }
 
 const BASE_URL: &str = "http://rustyshortener";
+
 /// Handle the generation of short URLs, storing the information in Redis.
 pub async fn handle_generate_url(
     key: String,
@@ -131,42 +132,6 @@ impl SnowflakeGenerator {
 
         (timestamp << (NODE_ID_BITS + SEQUENCE_BITS)) | (self.node_id << SEQUENCE_BITS) | seq
     }
-
-    // pub fn generate_batch(&self, batch_size: usize) -> Vec<i64> {
-    //     let mut ids = Vec::with_capacity(batch_size);
-    //     let mut timestamp = Self::timestamp();
-    //     let last = self.last_timestamp.load(Ordering::Acquire);
-
-    //     if timestamp < last {
-    //         timestamp = last;
-    //     }
-
-    //     for _ in 0..batch_size {
-    //         let seq = if timestamp == last {
-    //             let seq = self.sequence.fetch_add(1, Ordering::Relaxed) & MAX_SEQUENCE;
-    //             if seq == 0 {
-    //                 while timestamp <= last {
-    //                     std::thread::sleep(std::time::Duration::from_micros(10));
-    //                     timestamp = Self::timestamp();
-    //                 }
-    //             }
-    //             seq
-    //         } else {
-    //             self.sequence.store(0, Ordering::Relaxed);
-    //             0
-    //         };
-
-    //         self.last_timestamp.store(timestamp, Ordering::Release);
-
-    //         ids.push(
-    //             (timestamp << (NODE_ID_BITS + SEQUENCE_BITS))
-    //                 | (self.node_id << SEQUENCE_BITS)
-    //                 | seq,
-    //         );
-    //     }
-
-    //     ids
-    // }
 }
 
 pub fn generate_short_url_id(_long_url: &str) -> String {
@@ -177,6 +142,7 @@ pub fn generate_short_url_id(_long_url: &str) -> String {
     base62::encode(snowflake_id as u64)[0..7].to_string()
 }
 
+/// Handle redirect for a given short URL.
 pub async fn handle_redirect_url(
     params: HashMap<String, String>,
     redis_connection: Arc<Mutex<redis::aio::MultiplexedConnection>>,
@@ -212,7 +178,7 @@ pub async fn handle_redirect_url(
         }
     }
 
-    // This is the "URL not found" case
+    // URL not found
     Ok(Box::new(warp::reply::with_status(
         warp::reply::json(&serde_json::json!({
             "status": "error",
@@ -220,4 +186,65 @@ pub async fn handle_redirect_url(
         })),
         StatusCode::NOT_FOUND,
     )))
+}
+
+/// Handle creation of a user-defined custom short URL.
+pub async fn handle_custom_url(
+    key: String,
+    body: serde_json::Value,
+    redis_connection: Arc<Mutex<redis::aio::MultiplexedConnection>>,
+    expected_api_key: String,
+) -> Result<impl warp::Reply, warp::Rejection> {
+    // Verify API key
+    if key != expected_api_key {
+        return Ok(warp::reply::with_status(
+            warp::reply::json(&serde_json::json!({ "error": "UNAUTHORIZED" })),
+            StatusCode::UNAUTHORIZED,
+        ));
+    }
+
+    // Validate input fields
+    let long_url = body["long_url"].as_str().unwrap_or("");
+    let custom_short = body["custom_short"].as_str().unwrap_or("");
+    if long_url.is_empty() || custom_short.is_empty() {
+        return Ok(warp::reply::with_status(
+            warp::reply::json(&serde_json::json!({
+                "error": "Missing long_url or custom_short"
+            })),
+            StatusCode::BAD_REQUEST,
+        ));
+    }
+
+    // Check for existing alias (collision detection)
+    if retrieve_data(Arc::clone(&redis_connection), &custom_short).await.is_some() {
+        return Ok(warp::reply::with_status(
+            warp::reply::json(&serde_json::json!({ "error": "Alias already exists" })),
+            StatusCode::CONFLICT,
+        ));
+    }
+
+    // Build full URL and data struct
+    let full = format!("{}/dns_resolver/{}", BASE_URL, custom_short);
+    let data = Data {
+        creation_data: chrono::Local::now().to_rfc3339(),
+        shortened_url: full.clone(),
+        long_url: long_url.to_string(),
+        ttl: 30,
+    };
+
+    // Attempt to store in Redis
+    let key = custom_short.to_string();
+    match store_data(redis_connection, key.clone(), data).await {
+        Ok(_) => Ok(warp::reply::with_status(
+            warp::reply::json(&serde_json::json!({
+                "status": "success",
+                "short_url": full
+            })),
+            StatusCode::OK,
+        )),
+        Err(e) => Err(reject::custom(RedisError(format!(
+            "Redis storage error: {}",
+            e
+        )))),
+    }
 }

@@ -2,12 +2,15 @@ use dotenv::dotenv;
 use handlers::with_db;
 use std::collections::HashMap;
 use warp::cors;
-use warp::Filter; // Add this import for CORS
+use warp::Filter;
+
 mod db;
 mod handlers;
+
 use prometheus::{register_counter, register_histogram_vec, Encoder, TextEncoder};
 use std::net::SocketAddr;
 use std::sync::Arc;
+
 #[derive(Debug)]
 struct PrometheusErrorWrapper(prometheus::Error);
 impl warp::reject::Reject for PrometheusErrorWrapper {}
@@ -17,7 +20,6 @@ async fn main() {
     dotenv().ok();
     let api_key = std::env::var("API_KEY").expect("API_KEY must be set");
     let database: db::Database = db::init_db().await;
-    let db1 = Arc::clone(&database);
 
     let generate_url_counter = register_counter!(
         "generate_url_requests_total",
@@ -34,32 +36,50 @@ async fn main() {
     )
     .unwrap();
 
-    // Define the CORS configuration
     let cors = cors()
         .allow_any_origin()
         .allow_methods(vec!["GET", "POST", "PUT", "DELETE", "OPTIONS"])
         .allow_headers(vec!["Content-Type", "API-Key", "Authorization"])
         .build();
 
+    // Route: /generate_url
+    let db1 = Arc::clone(&database);
+    let api_key_generate = api_key.clone();
     let generate_url = warp::path("generate_url")
         .and(warp::post())
         .and(warp::header::<String>("API-Key"))
         .and(warp::path::end())
         .and(warp::body::json())
-        .and(handlers::with_db(db1))
+        .and(with_db(db1))
         .and_then(move |key, body: serde_json::Value, db| {
             generate_url_counter.inc();
             let histogram = generate_url_duration.with_label_values(&["generate_url"]);
-            let timer = histogram.start_timer(); // start the timer
-            let api_key = api_key.to_string();
+            let timer = histogram.start_timer();
+            let api_key = api_key_generate.to_string();
             let fut = handlers::handle_generate_url(key, body, db, api_key);
             async move {
                 let result = fut.await;
-                timer.observe_duration(); // stop + record the time
+                timer.observe_duration();
                 result
             }
         });
 
+    // Route: /custom_url
+    let db2 = Arc::clone(&database);
+    let api_key_custom = api_key.clone();
+    let custom_url = warp::path("custom_url")
+        .and(warp::post())
+        .and(warp::header::<String>("API-Key"))
+        .and(warp::path::end())
+        .and(warp::body::json())
+        .and(with_db(db2))
+        .and_then(move |key, body: serde_json::Value, db| {
+            let api_key = api_key_custom.to_string();
+            handlers::handle_custom_url(key, body, db, api_key)
+        })
+        .with(cors.clone());
+
+    // Route: /dns_resolver/:short_url
     let db3 = Arc::clone(&database);
     let redirect_route = warp::path!("dns_resolver" / String)
         .and(with_db(db3))
@@ -68,13 +88,12 @@ async fn main() {
             map.insert("short_url".to_string(), short_url);
             handlers::handle_redirect_url(map, db)
         })
-        .with(cors.clone()); // Use clone() to reuse the cors configuration
+        .with(cors.clone());
 
-    // For health check
+    // Route: /ping
     let ping = warp::path("ping").map(|| warp::reply::json(&"pong"));
 
-    // Add a new route for exposing Prometheus metrics at /metrics.
-    // This route will collect all registered metrics from the default registry.
+    // Route: /metrics
     let metrics = warp::path("metrics").and_then(|| async move {
         let encoder = TextEncoder::new();
         let metric_families = prometheus::gather();
@@ -92,10 +111,14 @@ async fn main() {
         }
     });
 
-    let api_routes = generate_url.or(ping).or(metrics).with(cors.clone());
+    let api_routes = generate_url
+        .or(custom_url)
+        .or(ping)
+        .or(metrics)
+        .with(cors.clone());
+
     let routes = api_routes.or(redirect_route);
 
-    // Explicitly bind to all interfaces on port 8000 to match Docker's internal port mapping
     let socket_addr: SocketAddr = "0.0.0.0:8000"
         .parse()
         .expect("Failed to parse socket address");
