@@ -1,26 +1,49 @@
-name: Rust
+name: Compose + Docker-native healthcheck
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [master, main]
   pull_request:
-    branches: [ "master" ]
-
-env:
-  CARGO_TERM_COLOR: always
+    branches: [master, main]
+  workflow_dispatch:
 
 jobs:
-  build:
-
+  verify:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-    - name: Build
-      working-directory: ./backend
-      run: cargo build --verbose
+      # Cache Docker images to avoid re-pulling every time
+      - name: Cache Docker images
+        uses: actions/cache@v3
+        with:
+          path: /tmp/.docker
+          key: ${{ runner.os }}-docker-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-docker-
+      
+      # Start all services
+      - name: Start all services
+        run: docker compose up -d
 
-    # - name: Run tests
-    #   working-directory: ./bacnekdn
-    #   run: cargo test --verbose
+      - name: Verify Docker health status
+        run: |
+          # helper to check health
+          check_health() {
+            svc=$1
+            cid=$(docker compose ps -q "$svc")
+            status=$(docker inspect --format='{{.State.Health.Status}}' $cid)
+            echo "$svc health: $status"
+            if [ "$status" != "healthy" ]; then
+              exit 1
+            fi
+          }
+
+          check_health frontend
+          check_health backend
+
+      - name: Teardown
+        if: always()
+        run: docker compose down
