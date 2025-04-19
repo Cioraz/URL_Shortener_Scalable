@@ -1,31 +1,48 @@
+version: '3.8'
+
 services:
-  redis:
-    image: "redis:latest"
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-
-  backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile 
-    ports:
-      - "${HOST_PORT_1}:8000"
-    environment:
-      - API_KEY=${API_KEY}
-      - REDIS_URL=redis://redis:6379
-    depends_on:
-      - redis
-
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
     ports:
       - "3000:3000"
+    environment:
+      - HOST=0.0.0.0
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
     depends_on:
-        - backend
+      - backend
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "${HOST_PORT_1}:8000"
+    environment:
+      - API_KEY=${API_KEY}
+      - REDIS_URL=redis://redis:6379
+    healthcheck:
+      test: ["CMD", "curl", "-f", "-X", "POST", "http://localhost:15555/generate_url", \
+        "-H", "Content-Type: application/json", \
+        "-H", "API-Key: 123456789", \
+        "-d", "{\"url\":\"https://example.com\"}" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    depends_on:
+      - redis
+
+  redis:
+    image: "redis:latest"
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
 
   nginx:
     image: nginx:latest
@@ -35,8 +52,8 @@ services:
     ports:
       - "80:80"
     depends_on:
-      - backend
       - frontend
+      - backend
 
   # prometheus:
   #   image: "prom/prometheus:latest"
@@ -50,14 +67,13 @@ services:
   #   depends_on:
   #     - backend
 
-
   # grafana:
   #   image: "grafana/grafana:latest"
   #   container_name: grafana
   #   ports:
-  #     - "3001:3000"  # Note: Exposed on a different host port to avoid conflict with frontend.
+  #     - "3001:3000"
   #   environment:
-  #     - GF_SECURITY_ADMIN_PASSWORD=admin  # Change to your preferred password.
+  #     - GF_SECURITY_ADMIN_PASSWORD=admin
   #   depends_on:
   #     - prometheus
 
