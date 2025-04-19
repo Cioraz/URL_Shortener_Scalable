@@ -1,4 +1,31 @@
-name: Rust
+# name: Rust
+
+# on:
+#   push:
+#     branches: [ "master" ]
+#   pull_request:
+#     branches: [ "master" ]
+
+# env:
+#   CARGO_TERM_COLOR: always
+
+# jobs:
+#   build:
+
+#     runs-on: ubuntu-latest
+
+#     steps:
+#     - uses: actions/checkout@v4
+
+#     - name: Build
+#       working-directory: ./backend
+#       run: cargo build --verbose
+
+#     # - name: Run tests
+#     #   working-directory: ./bacnekdn
+#     #   run: cargo test --verbose
+
+name: Docker Compose Up and Health Check
 
 on:
   push:
@@ -6,21 +33,17 @@ on:
   pull_request:
     branches: [ "master" ]
 
-env:
-  CARGO_TERM_COLOR: always
-
 jobs:
-  build:
-
+  deploy:
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Build
-      working-directory: ./backend
-      run: cargo build --verbose
+      - name: Run Docker Compose
+        run: docker-compose up -d
 
-    # - name: Run tests
-    #   working-directory: ./bacnekdn
-    #   run: cargo test --verbose
+      - name: Wait for a few seconds
+        run: sleep 5 # Adjust the sleep duration as needed
+
+      - name: Check Health
+        run: curl -I http://localhost:3000
