@@ -1,55 +1,55 @@
-# name: Rust
-
-# on:
-#   push:
-#     branches: [ "master" ]
-#   pull_request:
-#     branches: [ "master" ]
-
-# env:
-#   CARGO_TERM_COLOR: always
-
-# jobs:
-#   build:
-
-#     runs-on: ubuntu-latest
-
-#     steps:
-#     - uses: actions/checkout@v4
-
-#     - name: Build
-#       working-directory: ./backend
-#       run: cargo build --verbose
-
-name: CI Pipeline
+name: Rust
 
 on:
   push:
-    branches:
-      - main
+    branches: [ "master" ]
   pull_request:
-    branches:
-      - main
+    branches: [ "master" ]
+
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
-  verify:
+  build:
+
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v2
+    - uses: actions/checkout@v4
 
-    - name: Set up Docker Compose
-      run: |
-        docker-compose -f docker-compose.yml up -d
+    - name: Build
+      working-directory: ./backend
+      run: cargo build --verbose
 
-    - name: Check if frontend is running
-      run: |
-        curl -s http://localhost:3000 || (echo "Frontend is not running!" && exit 1)
+# name: CI Pipeline
 
-    - name: Tear down Docker Compose services
-      run: |
-        docker-compose -f docker-compose.yml down
+# on:
+#   push:
+#     branches:
+#       - main
+#   pull_request:
+#     branches:
+#       - main
+
+# jobs:
+#   verify:
+#     runs-on: ubuntu-latest
+
+#     steps:
+#     - name: Checkout repository
+#       uses: actions/checkout@v2
+
+#     - name: Set up Docker Compose
+#       run: |
+#         docker-compose -f docker-compose.yml up -d
+
+#     - name: Check if frontend is running
+#       run: |
+#         curl -s http://localhost:3000 || (echo "Frontend is not running!" && exit 1)
+
+#     - name: Tear down Docker Compose services
+#       run: |
+#         docker-compose -f docker-compose.yml down
 
 #       - name: Check Health
 #         run: curl -I http://localhost:3000
