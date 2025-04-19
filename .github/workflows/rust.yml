@@ -36,19 +36,17 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    container:
+      image: docker/compose:latest # Or a specific version
+
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Docker Compose
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y docker-compose
 
       - name: Run Docker Compose
         run: docker-compose up -d
 
       - name: Wait for a few seconds
-        run: sleep 5 # Adjust the sleep duration as needed
+        run: sleep 5
 
       - name: Check Health
         run: curl -I http://localhost:3000
