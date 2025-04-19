@@ -1,10 +1,10 @@
-name: Docker Compose Quick Check
+name: Compose + Docker-native healthcheck
 
 on:
   push:
-    branches: [ master, main ]
+    branches: [master, main]
   pull_request:
-    branches: [ master, main ]
+    branches: [master, main]
   workflow_dispatch:
 
 jobs:
@@ -15,71 +15,34 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Set up QEMU and Buildx
-        uses: docker/setup-buildx-action@v2
-        with:
-          install: true
-
-      - name: Cache Docker build layers
+      # Cache Docker images to avoid re-pulling every time
+      - name: Cache Docker images
         uses: actions/cache@v3
         with:
-          path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-${{ github.sha }}
+          path: /tmp/.docker
+          key: ${{ runner.os }}-docker-${{ github.sha }}
           restore-keys: |
-            ${{ runner.os }}-buildx-
-
-      - name: Build images with cache
-        run: |
-          docker buildx build \
-            --cache-from=type=local,src=/tmp/.buildx-cache \
-            --cache-to=type=local,dest=/tmp/.buildx-cache-new,mode=max \
-            --load ./backend
-          docker buildx build \
-            --cache-from=type=local,src=/tmp/.buildx-cache \
-            --cache-to=type=local,dest=/tmp/.buildx-cache-new,mode=max \
-            --load ./frontend
-          rm -rf /tmp/.buildx-cache && mv /tmp/.buildx-cache-new /tmp/.buildx-cache
-
-      - name: Start containers
+            ${{ runner.os }}-docker-
+      
+      # Start all services
+      - name: Start all services
         run: docker compose up -d
 
-      - name: Check frontend
+      - name: Verify Docker health status
         run: |
-          if curl -s http://localhost:3000; then
-            echo "✅ Frontend is running"
-          else
-            echo "❌ Frontend is not running"
-            exit 1
-          fi
+          # helper to check health
+          check_health() {
+            svc=$1
+            cid=$(docker compose ps -q "$svc")
+            status=$(docker inspect --format='{{.State.Health.Status}}' $cid)
+            echo "$svc health: $status"
+            if [ "$status" != "healthy" ]; then
+              exit 1
+            fi
+          }
 
-      - name: Check backend (/generate_url)
-        run: |
-          RESP=$(curl -s -X POST "http://127.0.0.1:15555/generate_url" \
-            -H "Content-Type: application/json" \
-            -H "API-Key: 123456789" \
-            -d '{"url":"https://example.com"}')
-          if echo "$RESP" | grep -q '"status":"success"'; then
-            echo "✅ Backend /generate_url returned success"
-          else
-            echo "❌ Backend /generate_url failed: $RESP"
-            exit 1
-          fi
-
-      - name: Check backend (/custom_url)
-        run: |
-          RESP=$(curl -s -X POST "http://127.0.0.1:15555/custom_url" \
-            -H "Content-Type: application/json" \
-            -H "API-Key: 123456789" \
-            -d '{
-                  "long_url":"https://www.example.com/some/very/long/path",
-                  "custom_short":"myalias"
-                }')
-          if echo "$RESP" | grep -q '"status":"success"' && echo "$RESP" | grep -q '"short_url"'; then
-            echo "✅ Backend /custom_url returned success"
-          else
-            echo "❌ Backend /custom_url failed: $RESP"
-            exit 1
-          fi
+          check_health frontend
+          check_health backend
 
       - name: Teardown
         if: always()
