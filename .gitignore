@@ -1,2 +1,5 @@
 /frontend/.next/
 /backend/target/
+/frontend/.DS_Store
+/frontend/node_modules
+/frontend/.next
