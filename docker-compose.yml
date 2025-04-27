@@ -26,16 +26,30 @@ services:
     environment:
       - API_KEY=${API_KEY}
       - REDIS_URL=redis://redis:6379
+      - RUST_LOG=info
     healthcheck:
-      test: ["CMD", "curl", "-f", "-X", "POST", "http://localhost:15555/generate_url", \
+      test: ["CMD", "curl", "-f", "-X", "POST", "http://localhost:8000/generate_url", \
         "-H", "Content-Type: application/json", \
-        "-H", "API-Key: 123456789", \
+        "-H", "API-Key: ${API_KEY}", \
         "-d", "{\"url\":\"https://example.com\"}" ]
       interval: 5s
       timeout: 3s
       retries: 5
     depends_on:
       - redis
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 2G
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+      nproc: 65536
+    sysctls:
+      net.core.somaxconn: 65536
+      net.ipv4.tcp_max_syn_backlog: 65536
 
   redis:
     image: "redis:latest"
@@ -43,6 +57,15 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    command: redis-server --maxmemory 2gb --maxmemory-policy allkeys-lru --tcp-backlog 65536
+    sysctls:
+      net.core.somaxconn: 65536
+      net.ipv4.tcp_max_syn_backlog: 65536
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 3G
 
   nginx:
     image: nginx:latest
@@ -79,3 +102,4 @@ services:
 
 volumes:
   redis_data:
+    driver: local

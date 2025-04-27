@@ -1,5 +1,6 @@
 wrk.method = "POST"
 wrk.headers["Content-Type"] = "application/json"
+wrk.headers["API-Key"] = "123456789"
 
 function request()
   local id = math.random(1, 10000000)
