@@ -167,9 +167,9 @@ For production deployment:
 
 We tested our entire setup using wrk_post.lua file where we sent requests to the server and these are the results..
 
-![Tested using 6 threads and 5000 connections each](image.png)
-![Tested using 7 threads and 7000 connections each](image-1.png)
-![Tested using 8 threads and 8000 connections each](image-2.png)
+![Tested using 6 threads and 5000 connections each](image-3.png)
+![Tested using 7 threads and 7000 connections each](image-4.png)
+![Tested using 8 threads and 8000 connections each](image-5.png)
 
 ## 🚀 Performance Results
 
