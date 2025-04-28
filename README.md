@@ -154,8 +154,8 @@ We tested our entire setup using wrk_post.lua file where we sent requests to the
 - Connections: 5000, 7000, 8000 respectively
 - Endpoint Tested: /generate_url
 - Custom Load Script: wrk_post.lua
-Benchmark tests were performed on the direct backend as well as on a load-balanced setup to compare performance.
 
+Benchmark tests were performed on the direct backend as well as on a load-balanced setup to compare performance.
 ![Tested using 6 threads and 5000 connections each](image.png)
 
 ---
