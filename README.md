@@ -30,11 +30,9 @@
 - URL shortening with custom and auto-generated short URLs
 - High-performance Rust backend with Warp framework
 - Redis-based storage for fast access
-- Prometheus metrics integration
 - Docker containerization
 - Nginx reverse proxy
 - Frontend interface
-- Health monitoring
 - Supports 100+ concurrent connections
 
 ## 🏗️ Architecture Components
@@ -54,22 +52,28 @@ upstream backend_servers {
 }
 ```
 
-### Backend Servers (Rust + Warp)
-- Backend 1: Port 15555
-- Backend 2: Port 15556
-- Backend 3: Port 15557
+### 🖥️ Backend Servers (Rust + Warp)
+
+| Server        | Host Port |
+|---------------|-----------|
+| **Backend 1** | 15555     |
+| **Backend 2** | 15556     |
+| **Backend 3** | 15557     |
+
 - Internal container port: 8000
 - Environment configuration through .env file
 
-
 ## 🛠️ Technology Stack
 
-- **Backend**: Rust + Warp
-- **Database**: Redis
-- **Containerization**: Docker + Docker Compose
-- **Reverse Proxy**: Nginx
-- **Monitoring**: Prometheus + Grafana
-- **API Testing**: curl/Postman
+| Category            | Tools                         |
+|---------------------|-------------------------------|
+| **Backend**         | Rust + Warp                   |
+| **Database**        | Redis                         |
+| **Containerization**| Docker & Docker Compose       |
+| **Reverse Proxy**   | Nginx                         |
+| **API Testing**     | curl / Postman                |
+| **Stress Testing**  | wrk                           |
+
 
 ## 📋 Prerequisites
 
@@ -125,19 +129,6 @@ GET /dns_resolver/:short_url
 GET /ping
 ```
 
-### Metrics
-```
-GET /metrics
-```
-
-## 🔍 Monitoring
-
-The service includes Prometheus metrics for:
-- Total URL generation requests
-- Request duration metrics
-- Custom metrics for error rates
-- Real-time performance monitoring
-
 ## 🔒 Security
 
 - API Key authentication for URL generation
@@ -145,30 +136,34 @@ The service includes Prometheus metrics for:
 - Input validation
 - CORS configuration
 
-## 🚀 Production Deployment
-
-For production deployment:
-1. Update the `.env` file with production values
-2. Enable HTTPS in Nginx configuration
-3. Configure proper monitoring
-4. Set up backups for Redis
-5. Configure proper logging
-
 ## 📈 Performance Metrics
 
-- Handles 100+ concurrent connections
-- Multi-threaded processing (4 threads)
+- Handles 10,000+ concurrent connections
+- Multi-threaded processing
 - High availability through containerization
 - Load balanced through Nginx
-- Redis-based caching for fast lookups
+- Redis-based storage for fast lookups
 
 ## Performance Tests
-![image](https://github.com/user-attachments/assets/b30d3036-91b9-4b18-87b4-d88dcb576870)
-
 We tested our entire setup using wrk_post.lua file where we sent requests to the server and these are the results..
 
+### Setup
+- Load Testing Tool: wrk
+- Test Duration: 30 seconds
+- Threads: 6, 7, 8 respectively
+- Connections: 5000, 7000, 8000 respectively
+- Endpoint Tested: /generate_url
+- Custom Load Script: wrk_post.lua
+Benchmark tests were performed on the direct backend as well as on a load-balanced setup to compare performance.
+
 ![Tested using 6 threads and 5000 connections each](image.png)
+
+---
+
 ![Tested using 7 threads and 7000 connections each](image-1.png)
+
+---
+
 ![Tested using 8 threads and 8000 connections each](image-2.png)
 
 ## 🚀 Performance Results
@@ -198,6 +193,22 @@ Results:
 - Automatic failover if any backend fails
 - Even distribution through consistent hashing
 - Connection pooling reduces overhead
+
+## Future Progressions
+
+- **Integrate Cassandra for Persistent Storage:**  
+  Migrate URL mappings to a highly available Cassandra database to ensure persistent, distributed, and scalable storage across multiple nodes.
+
+- **Use Redis for Caching Only:**  
+  Limit Redis usage strictly for caching hot entries to reduce backend database lookups, improving overall response times and reducing system load.
+
+- **Lower Overall Latency:**  
+  Optimize data access paths by introducing an efficient caching strategy and minimizing network hops, thus reducing request latency across the system.
+
+- **Integrate Kubernetes for Better Scaling:**  
+  Deploy the application on a Kubernetes cluster to enable dynamic scaling based on traffic, provide automatic failover, and ensure high availability across pods and services.
+
+
 
 ## 📝 License
 
