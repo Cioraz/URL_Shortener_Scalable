@@ -52,7 +52,7 @@ upstream backend_servers {
 }
 ```
 
-### 🖥️ Backend Servers (Rust + Warp)
+### Backend Servers (Rust + Warp) 🖥️
 
 | Server        | Host Port |
 |---------------|-----------|
@@ -156,6 +156,7 @@ We tested our entire setup using wrk_post.lua file where we sent requests to the
 - Custom Load Script: wrk_post.lua
 
 Benchmark tests were performed on the direct backend as well as on a load-balanced setup to compare performance.
+
 ![Tested using 6 threads and 5000 connections each](image-3.png)
 
 ---
@@ -172,21 +173,28 @@ Benchmark tests were performed on the direct backend as well as on a load-balanc
 ```bash
 wrk -t7 -c7000 -d30s -s wrk_post.lua http://127.0.0.1:80/generate_url
 ```
-Results:
-- Throughput: 11,504.66 req/sec
-- Latency: 602.38ms average
-- Transfer: 2.53 MB/sec
-- Total Requests: 346,110 in 30.08s
+<u>Results:</u>
+
+| Metric            | Value            |
+|-------------------|------------------|
+| Throughput        | 11,504.66 req/sec|
+| Latency (Avg)     | 602.38 ms        |
+| Transfer          | 2.53 MB/sec      |
+| Total Requests    | 346,110          |
+
 
 ### Direct Backend Performance (Port 15555)
 ```bash
 wrk -t7 -c7000 -d30s -s wrk_post.lua http://127.0.0.1:15555/generate_url
 ```
-Results:
-- Throughput: 10,263.40 req/sec
-- Latency: 671.89ms average
-- Transfer: 1.81 MB/sec
-- Total Requests: 308,189 in 30.03s
+<u>Results:</u>
+
+| Metric            | Value            |
+|-------------------|------------------|
+| Throughput        | 10,263.40 req/sec|
+| Latency (Avg)     | 671.89 ms        |
+| Transfer          | 1.81 MB/sec      |
+| Total Requests    | 308,189          |
 
 ## Load Distribution
 - Each backend handles ~2,333 connections under load
