@@ -117,6 +117,7 @@ const FloatingDockDesktop = ({
         title="Theme"
         icon={<ModeToggle />}
         href="#"
+        isThemeToggle
       />
     </motion.div>
   );
@@ -127,11 +128,13 @@ function IconContainer({
   title,
   icon,
   href,
+  isThemeToggle = false,
 }: {
   mouseX: MotionValue;
   title: string;
   icon: React.ReactNode;
   href: string;
+  isThemeToggle?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
 
@@ -175,7 +178,45 @@ function IconContainer({
 
   const [hovered, setHovered] = useState(false);
 
-  return (
+  // Conditional rendering based on isThemeToggle
+  return isThemeToggle ? (
+    // For theme toggle, use a button instead of Link
+    <div>
+      <motion.div
+        ref={ref}
+        style={{ width, height }}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        onClick={() => {
+          // Find and click the button inside the ModeToggle component
+          const toggleButton = ref.current?.querySelector('button');
+          if (toggleButton) {
+            toggleButton.click();
+          }
+        }}
+        className="aspect-square rounded-full bg-gray-200 dark:bg-neutral-950 flex items-center justify-center relative cursor-pointer"
+      >
+        <AnimatePresence>
+          {hovered && (
+            <motion.div
+              initial={{ opacity: 0, y: 10, x: "-50%" }}
+              animate={{ opacity: 1, y: 0, x: "-50%" }}
+              exit={{ opacity: 0, y: 2, x: "-50%" }}
+              className="px-2 py-0.5 whitespace-pre rounded-md bg-gray-100 border dark:bg-neutral-800 dark:border-neutral-900 dark:text-white border-gray-200 text-neutral-700 absolute left-1/2 -translate-x-1/2 -top-8 w-fit text-xs"
+            >
+              {title}
+            </motion.div>
+          )}
+        </AnimatePresence>
+        <motion.div
+          style={{ width: widthIcon, height: heightIcon }}
+          className="flex items-center justify-center pointer-events-none"
+        >
+          {icon}
+        </motion.div>
+      </motion.div>
+    </div>
+  ) : (
     <Link href={href}>
       <motion.div
         ref={ref}

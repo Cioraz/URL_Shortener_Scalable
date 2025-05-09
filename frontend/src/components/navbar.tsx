@@ -12,7 +12,7 @@ export const navItems = [
 
 export function Navbar() {
   return (
-    <div className="absolute top-12 left-0 right-0 flex justify-center z-50">
+    <div className="absolute top-20 left-0 right-0 flex justify-center z-50">
       <FloatingDock
         items={navItems}
         desktopClassName="bg-gray-200 dark:bg-gray-900 backdrop-blur-sm"
